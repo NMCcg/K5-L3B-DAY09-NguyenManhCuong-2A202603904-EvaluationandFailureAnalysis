@@ -8,6 +8,7 @@ Reference values to self-check are in tests/test_lab9_stats.py.
 from __future__ import annotations
 
 import inspect
+import math
 from collections.abc import Sequence
 from typing import Any
 
@@ -120,7 +121,11 @@ def pass_at_k(n: int, c: int, k: int) -> float:
     """Probability that AT LEAST ONE of k trials drawn from n (c of them passing) passes.
     Unbiased estimator (Chen et al. 2021): 1 - C(n-c, k) / C(n, k). Raise ValueError if k > n."""
     # TODO M6
-    raise NotImplementedError
+    if k < 1 or k > n or c < 0 or c > n:
+        raise ValueError(f"Invalid arguments for pass_at_k: n={n}, c={c}, k={k}")
+    if n - c < k:
+        return 1.0
+    return 1.0 - math.comb(n - c, k) / math.comb(n, k)
 
 
 def pass_hat_k(n: int, c: int, k: int) -> float:
@@ -128,4 +133,8 @@ def pass_hat_k(n: int, c: int, k: int) -> float:
     Unbiased estimator: C(c, k) / C(n, k). Raise ValueError if k > n.
     pass^k <= pass@1 <= pass@k; a reliable agent keeps pass^k close to pass@1."""
     # TODO M6
-    raise NotImplementedError
+    if k < 1 or k > n or c < 0 or c > n:
+        raise ValueError(f"Invalid arguments for pass_hat_k: n={n}, c={c}, k={k}")
+    if c < k:
+        return 0.0
+    return math.comb(c, k) / math.comb(n, k)
