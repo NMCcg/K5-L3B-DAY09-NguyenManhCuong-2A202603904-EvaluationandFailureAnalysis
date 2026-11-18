@@ -21,6 +21,7 @@ ITEMS_V2 = Path("data/eval/eval_set_v2.jsonl")
 LABELS_V2 = Path("data/eval/labels_v2.json")
 PACK = Path("data/eval/adversarial_v2.json")
 FM_MAP = Path("config/fm_map.yaml")
+TAXONOMY = Path("docs/failure_taxonomy.md")
 MIN_PER_MODE_V2 = 3   # v2 rule: a failure mode with < 3 items cannot show a trend, only an anecdote
 # Fields an item must carry. Labels never go inline: a grader that can read the
 # answer next to the input is a grader that can be fooled by it.
@@ -28,6 +29,51 @@ REQUIRED = ("item_id", "claim_id", "failure_modes", "provenance", "split", "eval
 
 
 FM_CODE = re.compile(r"FM-\d{2}")
+
+
+def find_taxonomy() -> Path:
+    candidates = [
+        TAXONOMY,
+        Path("../docs/failure_taxonomy.md"),
+        Path(__file__).resolve().parents[2] / "docs" / "failure_taxonomy.md",
+    ]
+    for p in candidates:
+        if p.is_file():
+            return p
+    return candidates[0]
+
+
+def load_taxonomy_codes(taxonomy_path: Path | None = None) -> set[str]:
+    """Parse declared FM-xx codes from the table rows in docs/failure_taxonomy.md."""
+    path = taxonomy_path or find_taxonomy()
+    if not path.is_file():
+        return set()
+    codes = set()
+    for line in path.read_text(encoding="utf-8").splitlines():
+        line = line.strip()
+        match = re.match(r"^\|\s*(FM-\d{2})\s*\|", line)
+        if match:
+            codes.add(match.group(1))
+    return codes
+
+
+# Mapping of public claim items to failure modes from docs/failure_taxonomy.md
+CLAIM_FAILURE_MODES: dict[str, list[str]] = {
+    "C-001": ["FM-01"],
+    "C-002": ["FM-03", "FM-02"],
+    "C-003": ["FM-01"],
+    "C-004": ["FM-02"],
+    "C-005": ["FM-09", "FM-01"],
+    "C-006": ["FM-06"],
+    "C-007": ["FM-02"],
+    "C-008": ["FM-08"],
+    "C-009": ["FM-03"],
+    "C-010": ["FM-07", "FM-01"],
+    "C-011": ["FM-07"],
+    "C-012": ["FM-07"],
+    "C-013": ["FM-02", "FM-05"],
+    "C-014": ["FM-05", "FM-04"],
+}
 
 
 def load_jsonl(path: Path) -> list[dict[str, Any]]:
@@ -47,7 +93,7 @@ def build(source: Path = SOURCE) -> tuple[int, int]:
             "item_id": item_id,
             "claim_id": claim["claim_id"],
             # TODO M1: replace [] with the FM-xx codes from your taxonomy that this item exercises.
-            "failure_modes": [],
+            "failure_modes": CLAIM_FAILURE_MODES.get(claim["claim_id"], []),
             "provenance": {"source": "lab8_public", "matrix_id": claim.get("matrix_id"),
                            "from_trace": None, "generator": None,
                            "label_by": "lab8_matrix", "checked_by": None},
@@ -103,10 +149,15 @@ def build_v2(items_v1: Path = ITEMS, labels_v1: Path = LABELS, pack: Path = PACK
     return len(items), len(labels)
 
 
-def check(items_path: Path = ITEMS, labels_path: Path = LABELS) -> list[str]:
+def check(items_path: Path = ITEMS, labels_path: Path = LABELS,
+          taxonomy_path: Path | None = None) -> list[str]:
     problems: list[str] = []
     items = load_jsonl(items_path)
     labels = json.loads(labels_path.read_text(encoding="utf-8"))
+    valid_fms = load_taxonomy_codes(taxonomy_path)
+    if not valid_fms:
+        tax_path = taxonomy_path or find_taxonomy()
+        problems.append(f"failure taxonomy: no valid FM-xx codes found in {tax_path}")
     for item in items:
         missing = [k for k in REQUIRED if k not in item]
         if missing:
@@ -122,6 +173,10 @@ def check(items_path: Path = ITEMS, labels_path: Path = LABELS) -> list[str]:
         problems += [f"{item['item_id']}: {fm!r} is not a failure-mode code like FM-03"
                      for fm in item.get("failure_modes") or []
                      if not str(fm).startswith("UNMAPPED:") and not FM_CODE.fullmatch(str(fm))]
+        if valid_fms:
+            problems += [f"{item['item_id']}: {fm!r} not declared in docs/failure_taxonomy.md"
+                         for fm in item.get("failure_modes") or []
+                         if FM_CODE.fullmatch(str(fm)) and str(fm) not in valid_fms]
     ids = [it.get("item_id") for it in items]
     problems += [f"{i}: duplicate item_id" for i in sorted({i for i in ids if ids.count(i) > 1})]
     cids = [it.get("claim_id") for it in items]
